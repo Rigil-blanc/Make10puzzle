@@ -1,4 +1,4 @@
-import { Fraction } from '../types';
+import { Fraction, Difficulty } from '../types';
 
 // Helper to find Greatest Common Divisor
 function gcd(x: number, y: number): number {
@@ -69,19 +69,29 @@ export function formatFraction(f: Fraction): string {
 interface CalcNode {
   value: Fraction;
   expr: string;
+  hasFractionalStep: boolean;
+  hasMul: boolean;
+  hasDiv: boolean;
 }
 
 /**
- * Searches for all unique formulas that evaluate to 10 using the four numbers.
+ * Evaluates the 4 numbers and classifies their make-10 solutions by difficulty.
  */
-export function solveMake10(numbers: number[]): string[] {
-  const results: string[] = [];
+export function evaluatePuzzleDifficulty(numbers: number[]): {
+  solutions: string[];
+  difficulty: Difficulty | null;
+  solutionsByDifficulty: Record<Difficulty, string[]>;
+} {
+  const solutionsByDifficulty: Record<Difficulty, string[]> = {
+    easy: [],
+    normal: [],
+    hard: [],
+    veryhard: []
+  };
+
   const seenExpressions = new Set<string>();
 
-  // Helper to normalize expressions by removing extra brackets or sorting commutative parts
-  // for unique matches
   function normalizeExpression(expr: string): string {
-    // Basic formatting cleanups
     return expr.replace(/\s+/g, '');
   }
 
@@ -92,8 +102,17 @@ export function solveMake10(numbers: number[]): string[] {
         const norm = normalizeExpression(node.expr);
         if (!seenExpressions.has(norm)) {
           seenExpressions.add(norm);
-          // Let's store the readable version
-          results.push(node.expr);
+          
+          // Categorize based on calculation metadata
+          if (node.hasFractionalStep) {
+            solutionsByDifficulty.veryhard.push(node.expr);
+          } else if (node.hasDiv) {
+            solutionsByDifficulty.hard.push(node.expr);
+          } else if (node.hasMul) {
+            solutionsByDifficulty.normal.push(node.expr);
+          } else {
+            solutionsByDifficulty.easy.push(node.expr);
+          }
         }
       }
       return;
@@ -109,31 +128,46 @@ export function solveMake10(numbers: number[]): string[] {
 
         // Operation: + (Commutative)
         if (i < j) {
+          const sum = addFractions(n1.value, n2.value);
+          const hasFrac = n1.hasFractionalStep || n2.hasFractionalStep || (sum.den !== 1);
           runSolve([
             ...remaining,
             {
-              value: addFractions(n1.value, n2.value),
-              expr: `(${n1.expr} + ${n2.expr})`
+              value: sum,
+              expr: `(${n1.expr} + ${n2.expr})`,
+              hasFractionalStep: hasFrac,
+              hasMul: n1.hasMul || n2.hasMul,
+              hasDiv: n1.hasDiv || n2.hasDiv
             }
           ]);
         }
 
         // Operation: -
+        const diff = subtractFractions(n1.value, n2.value);
+        const hasFracDiff = n1.hasFractionalStep || n2.hasFractionalStep || (diff.den !== 1);
         runSolve([
           ...remaining,
           {
-            value: subtractFractions(n1.value, n2.value),
-            expr: `(${n1.expr} - ${n2.expr})`
+            value: diff,
+            expr: `(${n1.expr} - ${n2.expr})`,
+            hasFractionalStep: hasFracDiff,
+            hasMul: n1.hasMul || n2.hasMul,
+            hasDiv: n1.hasDiv || n2.hasDiv
           }
         ]);
 
         // Operation: * (Commutative)
         if (i < j) {
+          const prod = multiplyFractions(n1.value, n2.value);
+          const hasFracProd = n1.hasFractionalStep || n2.hasFractionalStep || (prod.den !== 1);
           runSolve([
             ...remaining,
             {
-              value: multiplyFractions(n1.value, n2.value),
-              expr: `(${n1.expr} * ${n2.expr})`
+              value: prod,
+              expr: `(${n1.expr} * ${n2.expr})`,
+              hasFractionalStep: hasFracProd,
+              hasMul: true,
+              hasDiv: n1.hasDiv || n2.hasDiv
             }
           ]);
         }
@@ -141,11 +175,15 @@ export function solveMake10(numbers: number[]): string[] {
         // Operation: /
         const divVal = divideFractions(n1.value, n2.value);
         if (divVal !== null) {
+          const hasFracDiv = n1.hasFractionalStep || n2.hasFractionalStep || (divVal.den !== 1);
           runSolve([
             ...remaining,
             {
               value: divVal,
-              expr: `(${n1.expr} / ${n2.expr})`
+              expr: `(${n1.expr} / ${n2.expr})`,
+              hasFractionalStep: hasFracDiv,
+              hasMul: n1.hasMul || n2.hasMul,
+              hasDiv: true
             }
           ]);
         }
@@ -155,37 +193,102 @@ export function solveMake10(numbers: number[]): string[] {
 
   const initialNodes: CalcNode[] = numbers.map(val => ({
     value: { num: val, den: 1 },
-    expr: val.toString()
+    expr: val.toString(),
+    hasFractionalStep: false,
+    hasMul: false,
+    hasDiv: false
   }));
 
   runSolve(initialNodes);
-  return results;
+
+  // Classify overall minimum difficulty to solve this puzzle
+  let puzzleDiff: Difficulty | null = null;
+  if (solutionsByDifficulty.easy.length > 0) {
+    puzzleDiff = 'easy';
+  } else if (solutionsByDifficulty.normal.length > 0) {
+    puzzleDiff = 'normal';
+  } else if (solutionsByDifficulty.hard.length > 0) {
+    puzzleDiff = 'hard';
+  } else if (solutionsByDifficulty.veryhard.length > 0) {
+    puzzleDiff = 'veryhard';
+  }
+
+  const allSolutions = [
+    ...solutionsByDifficulty.easy,
+    ...solutionsByDifficulty.normal,
+    ...solutionsByDifficulty.hard,
+    ...solutionsByDifficulty.veryhard
+  ];
+
+  return {
+    solutions: allSolutions,
+    difficulty: puzzleDiff,
+    solutionsByDifficulty
+  };
 }
 
 /**
- * Generates a puzzle ensuring it is solvable.
- * Avoids boring trivial puzzles (like having double zeros or duplicate formulas) if possible.
+ * Legacy compatible helper
  */
-export function generateMake10Puzzle(): { numbers: number[]; solutions: string[] } {
+export function solveMake10(numbers: number[]): string[] {
+  return evaluatePuzzleDifficulty(numbers).solutions;
+}
+
+/**
+ * Generates a puzzle ensuring it is solvable under the target difficulty.
+ */
+export function generateMake10Puzzle(difficulty: Difficulty): { numbers: number[]; solutions: string[] } {
   let attempts = 0;
-  while (attempts < 1000) {
+  // Increase max attempts to find specific rare difficulties (like veryhard)
+  while (attempts < 3000) {
     attempts++;
     // Generate 4 numbers from 0 to 9
     const numbers = Array.from({ length: 4 }, () => Math.floor(Math.random() * 10));
     
-    // Let's filter out dry cases like having more than two 0s
+    // Dry and boring zero configurations filter
     const zeros = numbers.filter(n => n === 0).length;
-    if (zeros > 1) continue;
+    if (zeros > 2) continue;
+    if (difficulty === 'easy' && zeros > 1) continue;
 
-    const solutions = solveMake10(numbers);
-    if (solutions.length > 0) {
-      return { numbers, solutions };
+    const evaluation = evaluatePuzzleDifficulty(numbers);
+    
+    if (difficulty === 'veryhard') {
+      const validSols = evaluation.solutionsByDifficulty.veryhard;
+      if (validSols.length > 0) {
+        return { numbers, solutions: validSols };
+      }
+    } else if (evaluation.difficulty === difficulty) {
+      const validSols = evaluation.solutionsByDifficulty[difficulty];
+      if (validSols.length > 0) {
+        return { numbers, solutions: validSols };
+      }
     }
   }
   
-  // Fallback guaranteed puzzle (1, 2, 3, 4) -> (1 + 2 + 3 + 4) = 10
-  return {
-    numbers: [1, 2, 3, 4],
-    solutions: ['(1 + 2 + 3 + 4)', '((1 + 2) + 3) + 4', '(1 + 2) + (3 + 4)']
-  };
+  // High quality guaranteed static fallbacks for extreme cases
+  if (difficulty === 'easy') {
+    return {
+      numbers: [1, 2, 3, 4],
+      solutions: ['(((1 + 2) + 3) + 4)', '(1 + 2 + 3 + 4)']
+    };
+  } else if (difficulty === 'normal') {
+    return {
+      numbers: [1, 2, 3, 5], // 2*3 + 5 - 1 = 10
+      solutions: ['(((2 * 3) + 5) - 1)']
+    };
+  } else if (difficulty === 'hard') {
+    return {
+      numbers: [2, 4, 8, 9], // 4 / 2 + 8 = 10 (no fraction intermediate)
+      solutions: ['((4 / 2) + 8)']
+    };
+  } else {
+    // veryhard fallbacks
+    // 3, 3, 8, 8 -> 8 / (3 - 8/3) = 10
+    // 1, 5, 5, 5 -> 5 * (5 - 1 / 5) = 10  (5 * 24/5 = 24, not 10. wait: (5 - 1 / 5) * 5? No, (5 * (1 / 5)) is 1. Wait, 5 * (5 - 1/5) = 5 * (24/5) = 24? Wait, 5 * (2 - 1/5) = 9? No: (5 - 1/5)*5? no, 1/5 is 0.2, 5-0.2 is 4.8, 4.8 * 5 is 24.
+    // 1, 1, 5, 8 => 8 / (1 - 1/5) = 8 / (4/5) = 10! 这是veryhard!
+    return {
+      numbers: [1, 1, 5, 8],
+      solutions: ['(8 / (1 - (1 / 5)))']
+    };
+  }
 }

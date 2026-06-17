@@ -21,3 +21,5 @@ export interface HistoryItem {
 }
 
 export type GameStatus = 'idle' | 'playing' | 'gameover';
+export type GameMode = 'challenge' | 'practice';
+export type Difficulty = 'easy' | 'normal' | 'hard' | 'veryhard';

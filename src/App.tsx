@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { GameStatus, HistoryItem } from './types';
+import { GameStatus, HistoryItem, GameMode, Difficulty } from './types';
 import { generateMake10Puzzle } from './utils/solver';
 import { sound } from './utils/sound';
 import { GameBoard } from './components/GameBoard';
@@ -31,8 +31,11 @@ import {
 export default function App() {
   // Game states
   const [status, setStatus] = useState<GameStatus>('idle');
+  const [gameMode, setGameMode] = useState<GameMode>('challenge');
+  const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const [score, setScore] = useState(0);
   const [highScore, setHighScore] = useState(0);
+  const [selectedDuration, setSelectedDuration] = useState<number>(60); // Default: 60s (1 min)
   const [timeLeft, setTimeLeft] = useState(60);
   const [combo, setCombo] = useState(0);
 
@@ -61,7 +64,7 @@ export default function App() {
 
   // Timer interval hook
   useEffect(() => {
-    if (status !== 'playing') return;
+    if (status !== 'playing' || gameMode === 'practice') return;
 
     const interval = setInterval(() => {
       setTimeLeft((prev) => {
@@ -79,7 +82,7 @@ export default function App() {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [status]);
+  }, [status, gameMode]);
 
   // Handle game termination
   const handleTriggerGameOver = () => {
@@ -97,18 +100,19 @@ export default function App() {
     }
   };
 
-  // Start new 60s game
-  const handleStartGame = () => {
+  // Start new game
+  const handleStartGame = (mode: GameMode = 'challenge') => {
     sound.playSelect();
+    setGameMode(mode);
     setScore(0);
     setCombo(0);
-    setTimeLeft(60);
+    setTimeLeft(mode === 'challenge' ? selectedDuration : 9999);
     setHistory([]);
     setIsNewHighScore(false);
     setAlertMsg(null);
     
     // Generate first puzzle
-    const puzzle = generateMake10Puzzle();
+    const puzzle = generateMake10Puzzle(difficulty);
     setCurrentNumbers(puzzle.numbers);
     setCurrentSolutions(puzzle.solutions);
     
@@ -136,19 +140,21 @@ export default function App() {
     // Generate visual floating confetti burst
     triggerBurst();
 
-    // Adjust gameplay parameters
-    setScore((prev) => {
-      const nextScore = prev + 1;
-      // Real-time update high score visual feedback
-      if (nextScore > highScore) {
-        setHighScore(nextScore);
-      }
-      return nextScore;
-    });
-    setCombo((prev) => prev + 1);
+    if (gameMode === 'challenge') {
+      // Adjust gameplay parameters
+      setScore((prev) => {
+        const nextScore = prev + 1;
+        // Real-time update high score visual feedback
+        if (nextScore > highScore) {
+          setHighScore(nextScore);
+        }
+        return nextScore;
+      });
+      setCombo((prev) => prev + 1);
 
-    // Apply Time Bonus! +5 seconds, capped at 60s maximum total
-    setTimeLeft((prev) => Math.min(60, prev + 5));
+      // Apply Time Bonus! +5 seconds, capped at selectedDuration maximum total
+      setTimeLeft((prev) => Math.min(selectedDuration, prev + 5));
+    }
 
     // Wait a brief moment before transition so the user can cherish the victory feel
     setTimeout(() => {
@@ -180,8 +186,13 @@ export default function App() {
     loadNextPuzzle();
   };
 
+  const handleExitPractice = () => {
+    sound.playSelect();
+    setStatus('idle');
+  };
+
   const loadNextPuzzle = () => {
-    const nextPuzzle = generateMake10Puzzle();
+    const nextPuzzle = generateMake10Puzzle(difficulty);
     setCurrentNumbers(nextPuzzle.numbers);
     setCurrentSolutions(nextPuzzle.solutions);
     setStartTime(Date.now());
@@ -296,7 +307,7 @@ export default function App() {
 
             {/* Quick stats board */}
             {highScore > 0 && (
-              <div className="w-full bg-slate-50 rounded-2xl p-4 border border-slate-100 flex items-center justify-between mb-6">
+              <div className="w-full bg-slate-50 rounded-2xl p-4 border border-slate-100 flex items-center justify-between mb-4">
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
                   <Trophy className="w-4 h-4 text-amber-500" />
                   あなたの現在の最高記録
@@ -305,15 +316,94 @@ export default function App() {
               </div>
             )}
 
+            {/* Custom Duration Selector Panel */}
+            <div className="w-full mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col gap-2.5">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 select-none">
+                <Clock className="w-4 h-4 text-indigo-500" />
+                チャレンジモードの制限時間
+              </span>
+              <div className="grid grid-cols-5 gap-1.5">
+                {[60, 120, 180, 240, 300].map((dur) => {
+                  const isDurSelected = selectedDuration === dur;
+                  return (
+                    <button
+                      key={dur}
+                      onClick={() => {
+                        sound.playSelect();
+                        setSelectedDuration(dur);
+                      }}
+                      className={`py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer
+                        ${isDurSelected 
+                          ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm scale-102 font-extrabold' 
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:text-slate-800'
+                        }`}
+                    >
+                      {dur / 60}分
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Custom Difficulty Selector Panel */}
+            <div className="w-full mb-6 bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col gap-2.5">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 select-none">
+                <Sparkles className="w-4 h-4 text-indigo-500" />
+                ゲームの難易度
+              </span>
+              <div className="grid grid-cols-4 gap-1.5">
+                {(['easy', 'normal', 'hard', 'veryhard'] as Difficulty[]).map((diff) => {
+                  const isDiffSelected = difficulty === diff;
+                  const labelMap: Record<Difficulty, string> = {
+                    easy: 'Easy',
+                    normal: 'Normal',
+                    hard: 'Hard',
+                    veryhard: 'VeryHard'
+                  };
+                  return (
+                    <button
+                      key={diff}
+                      onClick={() => {
+                        sound.playSelect();
+                        setDifficulty(diff);
+                      }}
+                      className={`py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer
+                        ${isDiffSelected 
+                          ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm scale-102 font-extrabold' 
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 dark:text-slate-800'
+                        }`}
+                    >
+                      {labelMap[diff]}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed pl-1 transition-all">
+                {difficulty === 'easy' && '🟢 Easy: 足し算・引き算のみで10にできます。'}
+                {difficulty === 'normal' && '🟡 Normal: 足し算・引き算・掛け算のみで10にできます。'}
+                {difficulty === 'hard' && '🟠 Hard: 四則演算すべて、途中で分数が発生せず解けます。'}
+                {difficulty === 'veryhard' && '🔴 VeryHard: 割り切れない割り算、計算途中で分数（分母が1以外）が発生することがあります。'}
+              </p>
+            </div>
+
             {/* Actions */}
             <div className="w-full space-y-3">
               <button
-                onClick={handleStartGame}
+                onClick={() => handleStartGame('challenge')}
                 id="btn-start-game"
                 className="w-full py-4 rounded-2xl bg-indigo-600 text-white font-extrabold shadow-lg hover:bg-indigo-700 transition duration-150 flex items-center justify-center gap-2 group cursor-pointer"
               >
                 <Play className="w-5 h-5 fill-white" />
-                <span>ゲームを開始する (制限時間1分)</span>
+                <span>チャレンジ開始 ({selectedDuration / 60}分制限)</span>
+              </button>
+
+              <button
+                onClick={() => handleStartGame('practice')}
+                id="btn-start-practice"
+                className="w-full py-4 rounded-2xl bg-emerald-600 text-white font-extrabold shadow-md hover:bg-emerald-700 transition duration-150 flex items-center justify-center gap-2 group cursor-pointer"
+              >
+                🧘
+                <span>練習モードで遊ぶ (時間無制限・退出可)</span>
               </button>
 
               <button
@@ -321,16 +411,16 @@ export default function App() {
                   sound.playSelect();
                   setShowInstructions(true);
                 }}
-                className="w-full py-3 rounded-2xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition duration-150 flex items-center justify-center gap-1.5 cursor-pointer text-sm"
+                className="w-full py-2.5 rounded-2xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50 transition duration-150 flex items-center justify-center gap-1.5 cursor-pointer text-sm"
               >
                 <BookOpen className="w-4 h-4" />
                 <span>詳しい遊び方のルール</span>
               </button>
             </div>
             
-            <div className="mt-8 text-center text-[11px] text-slate-400 flex items-center gap-1 font-mono">
+            <div className="mt-8 text-center text-[11px] text-slate-400 flex items-center gap-1 font-mono justify-center">
               <Clock className="w-3 h-3" />
-              1正解ごとに+5秒のタイムボーナス！
+              チャレンジモードでは、1正解ごとに+5秒のボーナス（最大設定時間まで）
             </div>
           </div>
         )}
@@ -345,7 +435,9 @@ export default function App() {
               highScore={highScore}
               timeLeft={timeLeft}
               combo={combo}
-              totalTime={60}
+              totalTime={selectedDuration}
+              mode={gameMode}
+              onExit={handleExitPractice}
             />
 
             {/* Alert Message Box */}
