@@ -1,0 +1,6 @@
+{
+  "name": "Make 10 Puzzle",
+  "description": "0から9までの4つの数字を四則演算とカッコを用いて10にする「メイクテン」ゲームです。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
